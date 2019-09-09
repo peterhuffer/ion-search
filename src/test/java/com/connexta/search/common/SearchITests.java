@@ -30,6 +30,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -39,6 +41,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.util.LinkedMultiValueMap;
@@ -88,21 +93,54 @@ public class SearchITests {
   @Test
   public void testContextLoads() {}
 
+  @ParameterizedTest
+  @ValueSource(strings = {"", " ", "text"})
+  public void testStoringValidCst(String contents) throws Exception {
+    // given
+    final String productLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
+
+    // when indexing a product
+    ResponseEntity<String> response =
+        restTemplate.exchange(
+            productLocation + "/cst",
+            HttpMethod.PUT,
+            createIndexRequest("{ \"ext.extracted.text\" : \"" + contents + "\" }"),
+            String.class);
+
+    // then
+    assertThat(response.getStatusCode(), is(HttpStatus.OK));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "{}", "{ \"\": \"text\"}"})
+  public void testStoringInvalidCst(String contents) throws IOException {
+    // given
+    final String productLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
+
+    // when indexing a product
+    ResponseEntity<String> response =
+        restTemplate.exchange(
+            productLocation + "/cst", HttpMethod.PUT, createIndexRequest(contents), String.class);
+
+    // then
+    assertThat(response.getStatusCode(), is(HttpStatus.INTERNAL_SERVER_ERROR));
+  }
+
   @Test
   public void testStoreMetadataCstWhenSolrIsEmpty() throws Exception {
     // given
     final String queryKeyword = "Winterfell";
     final String productLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
 
-    // when index a product
+    // when indexing a product
     restTemplate.put(
         productLocation + "/cst",
         createIndexRequest(
-            "{contents:\""
+            "{ \"ext.extracted.text\" : \""
                 + ("All the color had been leached from "
                     + queryKeyword
                     + " until only grey and white remained")
-                + "\""));
+                + " \" }"));
 
     // then
     final URIBuilder queryUriBuilder = new URIBuilder();
@@ -118,21 +156,21 @@ public class SearchITests {
     // given index an initial product
     restTemplate.put(
         (retrieveEndpoint + "000b27ffc35d46d9ba041f663d9ccaff") + "/cst",
-        createIndexRequest("{contents:\"first product metadata\""));
+        createIndexRequest("{ \"ext.extracted.text\" : \"" + ("First product metadata") + " \" }"));
 
     // and create the index request for another product
     final String queryKeyword = "Winterfell";
     final String productLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
 
-    // when index another product
+    // when indexing another product
     restTemplate.put(
         productLocation + "/cst",
         createIndexRequest(
-            "{contents:\""
+            "{ \"ext.extracted.text\" : \""
                 + ("All the color had been leached from "
                     + queryKeyword
                     + " until only grey and white remained")
-                + "\""));
+                + " \" }"));
 
     // then
     final URIBuilder queryUriBuilder = new URIBuilder();
@@ -156,13 +194,17 @@ public class SearchITests {
     restTemplate.put(
         productLocation + "/cst",
         createIndexRequest(
-            "{contents:\"All the color had been leached from "
-                + queryKeyword
-                + " until only grey and white remained\""));
+            "{ \"ext.extracted.text\" : \""
+                + ("All the color had been leached from "
+                    + queryKeyword
+                    + " until only grey and white remained")
+                + " \" }"));
 
-    // when index it again (override or same file doesn't matter)
+    // when indexing it again (override or same file doesn't matter)
     // TODO fix status code returned here
-    restTemplate.put(productLocation + "/cst", createIndexRequest("{contents:\"new contents\""));
+    restTemplate.put(
+        productLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"new \"ext.extracted.text\"\"}"));
 
     // then query should still work
     final URIBuilder queryUriBuilder = new URIBuilder();
@@ -178,22 +220,25 @@ public class SearchITests {
     // given a product is indexed
     final String firstLocation = retrieveEndpoint + "000b27ffc35d46d9ba041f663d9ccaff";
     restTemplate.put(
-        firstLocation + "/cst", createIndexRequest("{contents:\"first product metadata\""));
+        firstLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"first product metadata\"}"));
 
     // and another product is indexed
     final String secondLocation = retrieveEndpoint + "001ccb7241284f21a3d15cc340c6aa9c";
     restTemplate.put(
-        secondLocation + "/cst", createIndexRequest("{contents:\"second product metadata\""));
+        secondLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"second product metadata\"}"));
 
     // and another product is indexed
     final String thirdLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
     restTemplate.put(
-        thirdLocation + "/cst", createIndexRequest("{contents:\"third product metadata\""));
+        thirdLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"third product metadata\"}"));
 
     // verify
     final URIBuilder queryUriBuilder = new URIBuilder();
     queryUriBuilder.setPath("/search");
-    queryUriBuilder.setParameter("q", "contents");
+    queryUriBuilder.setParameter("q", "metadata");
     assertThat(
         (List<String>) restTemplate.getForObject(queryUriBuilder.build(), List.class),
         hasItems(firstLocation, secondLocation, thirdLocation));
@@ -204,17 +249,20 @@ public class SearchITests {
     // given a product is indexed
     final String firstLocation = retrieveEndpoint + "000b27ffc35d46d9ba041f663d9ccaff";
     restTemplate.put(
-        firstLocation + "/cst", createIndexRequest("{contents:\"first product metadata\""));
+        firstLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"first product metadata\"}"));
 
     // and another product is indexed
     final String secondLocation = retrieveEndpoint + "001ccb7241284f21a3d15cc340c6aa9c";
     restTemplate.put(
-        secondLocation + "/cst", createIndexRequest("{contents:\"second product metadata\""));
+        secondLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"second product metadata\"}"));
 
     // and another product is indexed
     final String thirdLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
     restTemplate.put(
-        thirdLocation + "/cst", createIndexRequest("{contents:\"third product metadata\""));
+        thirdLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"third product metadata\"}"));
 
     // verify
     final URIBuilder queryUriBuilder = new URIBuilder();
@@ -235,17 +283,20 @@ public class SearchITests {
     final String firstProductKeyword = "first";
     restTemplate.put(
         firstLocation + "/cst",
-        createIndexRequest("{contents:\"" + firstProductKeyword + " product metadata\""));
+        createIndexRequest(
+            "{\"ext.extracted.text\":\"" + firstProductKeyword + " product metadata\"}"));
 
     // and another product is indexed
     final String secondLocation = retrieveEndpoint + "001ccb7241284f21a3d15cc340c6aa9c";
     restTemplate.put(
-        secondLocation + "/cst", createIndexRequest("{contents:\"second product metadata\""));
+        secondLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"second product metadata\"}"));
 
     // and another product is indexed
     final String thirdLocation = retrieveEndpoint + "00067360b70e4acfab561fe593ad3f7a";
     restTemplate.put(
-        thirdLocation + "/cst", createIndexRequest("{contents:\"third product metadata\""));
+        thirdLocation + "/cst",
+        createIndexRequest("{\"ext.extracted.text\":\"third product metadata\"}"));
 
     // verify
     final URIBuilder queryUriBuilder = new URIBuilder();
@@ -267,20 +318,20 @@ public class SearchITests {
 
   private static HttpEntity createIndexRequest(final String fileString) throws IOException {
     // TODO replace with request class from api dependency
-    final InputStream thirdMetadataInputStream = IOUtils.toInputStream(fileString, "UTF-8");
+    final InputStream metadataInputStream = IOUtils.toInputStream(fileString, "UTF-8");
     final MultiValueMap<String, Object> requestBody = new LinkedMultiValueMap<>();
     requestBody.add(
         "file",
-        new InputStreamResource(thirdMetadataInputStream) {
+        new InputStreamResource(metadataInputStream) {
 
           @Override
           public long contentLength() throws IOException {
-            return thirdMetadataInputStream.available();
+            return metadataInputStream.available();
           }
 
           @Override
           public String getFilename() {
-            return "test_file_name.txt";
+            return "test_file.json";
           }
         });
     final HttpHeaders httpHeaders = new HttpHeaders();
