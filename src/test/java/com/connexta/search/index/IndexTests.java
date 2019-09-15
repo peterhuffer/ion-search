@@ -6,9 +6,11 @@
  */
 package com.connexta.search.index;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.ignoreStubs;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -16,7 +18,9 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.connexta.search.index.exceptions.IndexException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.Stream;
 import javax.inject.Inject;
@@ -42,6 +46,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.repository.CrudRepository;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -226,5 +231,16 @@ public class IndexTests {
                             StandardCharsets.UTF_8)))
                 .header("Accept-Version", "0.1.0-SNAPSHOT"),
             HttpStatus.NOT_FOUND));
+  }
+
+  @Test
+  public void testExistingProduct() {
+    CrudRepository crudRepository = mock(CrudRepository.class);
+    String productId = "00067360b70e4acfab561fe593afaded";
+    doReturn(true).when(crudRepository).existsById(productId);
+    IndexManagerImpl indexManager = new IndexManagerImpl(crudRepository);
+    assertThrows(
+        IndexException.class,
+        () -> indexManager.index(productId, "application/json", mock(InputStream.class)));
   }
 }
