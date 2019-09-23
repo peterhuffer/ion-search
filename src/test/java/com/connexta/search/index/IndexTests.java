@@ -35,6 +35,7 @@ import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.SolrInputDocument;
 import org.apache.solr.common.StringUtils;
 import org.apache.solr.common.params.SolrParams;
+import org.geotools.data.DataStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @ExtendWith(SpringExtension.class)
 @SpringBootTest
 @AutoConfigureMockMvc
+@MockBean(DataStore.class)
 public class IndexTests {
 
   @MockBean private SolrClient mockSolrClient;
@@ -112,11 +114,11 @@ public class IndexTests {
 
     mockMvc
         .perform(
-            multipart("/mis/product/" + id + "/cst")
+            multipart("/index/" + id)
                 .file(
                     new MockMultipartFile(
                         "file",
-                        "test_file_name.json",
+                        "this originalFilename is ignored",
                         "application/json",
                         IOUtils.toInputStream(
                             "{\"ext.extracted.text\" : \"All the color had been leached from Winterfell until only grey and white remained\"}",
@@ -158,11 +160,11 @@ public class IndexTests {
 
     mockMvc
         .perform(
-            multipart("/mis/product/" + id + "/cst")
+            multipart("/index/" + id)
                 .file(
                     new MockMultipartFile(
                         "file",
-                        "test_file_name.json",
+                        "this originalFilename is ignored",
                         "application/json",
                         IOUtils.toInputStream(contents, StandardCharsets.UTF_8)))
                 .header("Accept-Version", "0.1.0-SNAPSHOT")
@@ -190,16 +192,16 @@ public class IndexTests {
     return Stream.of(
         Arguments.of(
             "missing file",
-            multipart("/mis/product/00067360b70e4acfab561fe593ad3f7a/cst")
+            multipart("/index/00067360b70e4acfab561fe593ad3f7a")
                 .header("Accept-Version", "0.1.0-SNAPSHOT"),
             HttpStatus.BAD_REQUEST),
         Arguments.of(
             "invalid productId",
-            multipart("/mis/product/1234/cst")
+            multipart("/index/1234")
                 .file(
                     new MockMultipartFile(
                         "file",
-                        "test_file_name.json",
+                        "this originalFilename is ignored",
                         "application/json",
                         IOUtils.toInputStream(
                             "{\"ext.extracted.text\" : \"All the color had been leached from Winterfell until only grey and white remained\"}",
@@ -208,11 +210,11 @@ public class IndexTests {
             HttpStatus.BAD_REQUEST),
         Arguments.of(
             "missing Accept-Version",
-            multipart("/mis/product/00067360b70e4acfab561fe593ad3f7a/cst")
+            multipart("/index/00067360b70e4acfab561fe593ad3f7a")
                 .file(
                     new MockMultipartFile(
                         "file",
-                        "test_file_name.json",
+                        "this originalFilename is ignored",
                         "application/json",
                         IOUtils.toInputStream(
                             "{\"ext.extracted.text\" : \"All the color had been leached from Winterfell until only grey and white remained\"}",
@@ -220,11 +222,11 @@ public class IndexTests {
             HttpStatus.BAD_REQUEST),
         Arguments.of(
             "not cst",
-            multipart("/mis/product/00067360b70e4acfab561fe593ad3f7a/anotherMetadataType")
+            multipart("/index/00067360b70e4acfab561fe593ad3f7a/badpath")
                 .file(
                     new MockMultipartFile(
                         "file",
-                        "test_file_name.json",
+                        "this originalFilename is ignored",
                         "application/json",
                         IOUtils.toInputStream(
                             "{\"ext.extracted.text\" : \"All the color had been leached from Winterfell until only grey and white remained\"}",
@@ -236,11 +238,11 @@ public class IndexTests {
   @Test
   public void testExistingProduct() {
     CrudRepository crudRepository = mock(CrudRepository.class);
-    String productId = "00067360b70e4acfab561fe593afaded";
-    doReturn(true).when(crudRepository).existsById(productId);
-    IndexManagerImpl indexManager = new IndexManagerImpl(crudRepository);
+    String id = "00067360b70e4acfab561fe593afaded";
+    doReturn(true).when(crudRepository).existsById(id);
+    IndexManager indexManager = new IndexManagerImpl(crudRepository);
     assertThrows(
         IndexException.class,
-        () -> indexManager.index(productId, "application/json", mock(InputStream.class)));
+        () -> indexManager.index(id, "application/json", mock(InputStream.class)));
   }
 }

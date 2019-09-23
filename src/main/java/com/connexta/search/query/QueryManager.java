@@ -17,6 +17,6 @@ public interface QueryManager {
 
   @NotNull
   List<URI> find(
-      @NotNull @Pattern(regexp = ".*\\S.*") @Size(min = 1, max = 100) final String keyword)
+      @NotNull @Pattern(regexp = ".*\\S.*") @Size(min = 1, max = 100) final String cqlString)
       throws QueryException;
 }
