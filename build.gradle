@@ -38,7 +38,10 @@ dependencies {
     implementation "io.springfox:springfox-swagger2:2.9.2"
     implementation "io.springfox:springfox-swagger-ui:2.9.2"
     implementation "javax.inject:javax.inject:1"
-    implementation ("org.geotools:gt-solr:21.2") {
+    implementation("org.geotools:gt-solr:22.0") {
+        exclude group: "org.apache.axis", module: "axis"
+        because "CVE-2012-5784, CVE-2014-3596, CVE-2018-8032, CVE-2019-0227"
+
         exclude group: "commons-beanutils", module: "commons-beanutils"
         because "This artifact pulled in by Geotools has a classifier \"noclassprop\". It is a " +
                 "special version of the JAR file that disabled the ability for an attacker to " +
@@ -52,7 +55,7 @@ dependencies {
     implementation "commons-beanutils:commons-beanutils:1.9.4"
     implementation "org.springframework.boot:spring-boot-starter-actuator:2.1.8.RELEASE"
     implementation "org.springframework.boot:spring-boot-starter-web:2.1.8.RELEASE"
-    implementation ("org.springframework.data:spring-data-solr:4.1.0.RELEASE") {
+    implementation("org.springframework.data:spring-data-solr:4.1.0.RELEASE") {
         exclude group: "junit", module: "junit" // excludes JUnit 4
     }
     testCompile "org.junit.jupiter:junit-jupiter-params:5.5.2"
