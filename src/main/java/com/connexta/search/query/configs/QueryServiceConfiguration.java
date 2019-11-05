@@ -9,8 +9,8 @@ package com.connexta.search.query.configs;
 import static com.connexta.search.common.configs.SolrConfiguration.SOLR_COLLECTION;
 
 import com.connexta.search.common.configs.SolrConfiguration;
-import com.connexta.search.query.QueryManager;
-import com.connexta.search.query.QueryManagerImpl;
+import com.connexta.search.query.QueryService;
+import com.connexta.search.query.QueryServiceImpl;
 import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
@@ -27,13 +27,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-public class QueryManagerConfiguration {
+public class QueryServiceConfiguration {
 
   @Bean
-  public QueryManager queryManager(
+  public QueryService queryService(
       @NotNull final DataStore datastore,
       @NotBlank @Value("${endpointUrl.datasetRetrieve}") final String dataRetrieveEndpoint) {
-    return new QueryManagerImpl(datastore, dataRetrieveEndpoint);
+    return new QueryServiceImpl(datastore, dataRetrieveEndpoint);
   }
 
   @Bean

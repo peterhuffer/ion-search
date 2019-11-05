@@ -6,9 +6,10 @@
  */
 package com.connexta.search.index.controllers;
 
-import com.connexta.search.common.IdValidator;
-import com.connexta.search.common.MultipartFileValidator;
-import com.connexta.search.index.IndexManager;
+import static com.connexta.search.index.controllers.MultipartFileValidator.validate;
+
+import com.connexta.search.common.exceptions.DetailedResponseStatusException;
+import com.connexta.search.index.IndexService;
 import com.connexta.search.rest.spring.IndexApi;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,7 +31,7 @@ public class IndexController implements IndexApi {
 
   public static final String ACCEPT_VERSION_HEADER_NAME = "Accept-Version";
 
-  @NotNull private final IndexManager indexManager;
+  @NotNull private final IndexService indexService;
   @NotBlank private final String indexApiVersion;
 
   @Override
@@ -38,34 +39,24 @@ public class IndexController implements IndexApi {
       final String acceptVersion, final String datasetId, final MultipartFile file) {
     final String expectedAcceptVersion = indexApiVersion;
     if (!StringUtils.equals(acceptVersion, expectedAcceptVersion)) {
-      log.warn(
-          "Expected "
-              + ACCEPT_VERSION_HEADER_NAME
-              + " to be \"{}\" but was \"{}\". Only \"{}\" is currently supported.",
-          expectedAcceptVersion,
-          acceptVersion,
-          expectedAcceptVersion);
-      return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).build();
+      throw new DetailedResponseStatusException(
+          HttpStatus.NOT_IMPLEMENTED,
+          String.format(
+              "%s was %s, but only %s is currently supported.",
+              ACCEPT_VERSION_HEADER_NAME, acceptVersion, expectedAcceptVersion));
     }
 
-    new IdValidator(datasetId).validate();
-    new MultipartFileValidator(file);
-
-    final String mediaType = file.getContentType();
-
-    // TODO handle when CST has already been stored
-
-    final InputStream inputStream;
-    try {
-      inputStream = file.getInputStream();
+    // TODO Add tests to verify that InputStream is closed
+    try (final InputStream inputStream = validate(file).getInputStream(); ) {
+      indexService.index(datasetId, file.getContentType(), inputStream);
     } catch (IOException e) {
       throw new ValidationException(
           String.format(
-              "Unable to read file for index request with params acceptVersion=%s, datasetId=%s, mediaType=%s",
-              acceptVersion, datasetId, mediaType),
+              "Unable to read file for index request with params acceptVersion=%s, datasetId=%s",
+              acceptVersion, datasetId),
           e);
     }
-    indexManager.index(datasetId, mediaType, inputStream);
+
     return ResponseEntity.ok().build();
   }
 }
