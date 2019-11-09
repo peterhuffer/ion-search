@@ -30,6 +30,6 @@ public class QueryController implements QueryApi {
 
   @Override
   public ResponseEntity<List<URI>> query(final String q) {
-    return ResponseEntity.ok(queryService.find(q));
+    return ResponseEntity.ok(List.copyOf(queryService.find(q)));
   }
 }
