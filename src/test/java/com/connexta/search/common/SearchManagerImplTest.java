@@ -7,10 +7,9 @@
 package com.connexta.search.common;
 
 import static com.connexta.search.common.SearchManagerImpl.EXT_EXTRACTED_TEXT;
-import static com.connexta.search.common.configs.SolrConfiguration.IRM_URI_STRING_ATTRIBUTE;
+import static com.connexta.search.common.configs.SolrConfiguration.IRM_URL_ATTRIBUTE;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
@@ -24,13 +23,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.connexta.search.common.configs.SolrConfiguration;
 import com.connexta.search.common.exceptions.SearchException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.io.IOUtils;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrServerException;
@@ -63,7 +67,7 @@ class SearchManagerImplTest {
   // index tests
 
   @Test
-  public void testExistingDataset(@Mock final InputStream mockInputStream) {
+  void testExistingDataset(@Mock final InputStream mockInputStream) {
     // given
     final SearchManager indexManager = new SearchManagerImpl(mockIndexRepository, mockSolrClient);
     final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
@@ -85,7 +89,7 @@ class SearchManagerImplTest {
   }
 
   @Test
-  public void testExceptionWhenCheckingIfDatasetExists(@Mock final InputStream mockInputStream) {
+  void testExceptionWhenCheckingIfDatasetExists(@Mock final InputStream mockInputStream) {
     // given
     final SearchManager indexManager = new SearchManagerImpl(mockIndexRepository, mockSolrClient);
     final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
@@ -112,7 +116,7 @@ class SearchManagerImplTest {
   /** TODO change this from IRM to CST */
   @ParameterizedTest
   @ValueSource(strings = {"", "{}", "{ \"\": \"text\"}", "this isn't json"})
-  public void testIrmFormatIsInvalid(final String body) {
+  void testIrmFormatIsInvalid(final String body) {
     // given
     final SearchManager indexManager = new SearchManagerImpl(mockIndexRepository, mockSolrClient);
     final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
@@ -131,7 +135,7 @@ class SearchManagerImplTest {
   }
 
   @Test
-  public void testExceptionWhenSaving() throws Exception {
+  void testExceptionWhenSaving() throws Exception {
     // given
     final SearchManager searchManager = new SearchManagerImpl(mockIndexRepository, mockSolrClient);
     final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
@@ -147,7 +151,15 @@ class SearchManagerImplTest {
     final RuntimeException runtimeException = new RuntimeException();
     doThrow(runtimeException)
         .when(mockIndexRepository)
-        .save(argThat(index -> index.equals(new Index(datasetId, contents, irmUri.toString()))));
+        .save(
+            argThat(
+                index ->
+                    index.equals(
+                        Index.builder()
+                            .id(datasetId)
+                            .contents(contents)
+                            .irmUrl(irmUri.toString())
+                            .build())));
 
     // expect
     final SearchException thrown =
@@ -186,7 +198,15 @@ class SearchManagerImplTest {
 
     // then
     verify(mockIndexRepository)
-        .save(argThat(index -> index.equals(new Index(datasetId, contents, irmUri.toString()))));
+        .save(
+            argThat(
+                index ->
+                    index.equals(
+                        Index.builder()
+                            .id(datasetId)
+                            .contents(contents)
+                            .irmUrl(irmUri.toString())
+                            .build())));
   }
 
   // query tests
@@ -202,16 +222,38 @@ class SearchManagerImplTest {
   }
 
   @Test
-  void testQueryIdEquals() throws Exception {
+  void testSupportedAttributes() throws Exception {
     // setup
-    final String idQuery = "id = 'value'";
+    final String template = "%s = '%s'";
+    final Map<String, String> queryPairs = new HashMap();
+    queryPairs.put("contents", "lots of words");
+    queryPairs.put("country_code", "USA");
+    queryPairs.put("created", "2019-11-13");
+    queryPairs.put("expiration", "2119-11-01");
+    queryPairs.put("file_url", "http://host/1");
+    queryPairs.put("icid", "floop");
+    queryPairs.put("id", "bloop");
+    queryPairs.put("irm_url", "http://host/2");
+    queryPairs.put("keyword", "key");
+    queryPairs.put("metacard_url", "http://host/3");
+    queryPairs.put("modified", "2019-11-14");
+    queryPairs.put("title", "A Title");
 
-    final URI irmUri = new URI("value");
-    QueryResponse queryResponse = mockQueryResponse(irmUri.toString());
+    assertThat(
+        "Expected attributes do not match actual attributes. These collections need to be the same.",
+        List.of(queryPairs.keySet()),
+        containsInAnyOrder(SolrConfiguration.QUERY_TERMS));
+
+    String queryString =
+        queryPairs.entrySet().stream()
+            .map(e -> String.format(template, e.getKey(), e.getValue()))
+            .collect(Collectors.joining(" AND "));
+    QueryResponse queryResponse = mockQueryResponse("something");
     when(mockSolrClient.query(anyString(), any())).thenReturn(queryResponse);
 
     // expect
-    assertThat(searchManagerImpl.query(idQuery), contains(irmUri));
+    Set<URI> result = searchManagerImpl.query(queryString);
+    assertThat(result, containsInAnyOrder(new URI("something")));
   }
 
   @Test
@@ -301,9 +343,9 @@ class SearchManagerImplTest {
 
   private static QueryResponse mockQueryResponse(final String... irmUriStrings) {
     List<SolrDocument> solrDocuments = new ArrayList<>();
-    for (final String irmUriString : irmUriStrings) {
+    for (final String irmUri : irmUriStrings) {
       SolrDocument document = mock(SolrDocument.class);
-      when(document.get(IRM_URI_STRING_ATTRIBUTE)).thenReturn(irmUriString);
+      when(document.get(IRM_URL_ATTRIBUTE)).thenReturn(irmUri);
       solrDocuments.add(document);
     }
 
