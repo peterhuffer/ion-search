@@ -6,14 +6,17 @@
  */
 package com.connexta.search.index;
 
-import java.net.URI;
-import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Pattern;
-import javax.validation.constraints.Size;
+import com.connexta.search.common.exceptions.SearchException;
+import com.connexta.search.rest.models.IndexRequest;
+import java.util.UUID;
 
 public interface IndexService {
 
-  void index(
-      @Pattern(regexp = "^[0-9a-zA-Z]+$") @Size(min = 32, max = 32) final String datasetId,
-      @NotNull final URI irmUri);
+  /**
+   * Create a persistent record of the information in the {@link IndexRequest}. Extract searchable
+   * information and create an entry for the dataset.
+   *
+   * @throws SearchException if unable to index
+   */
+  void index(final UUID datasetId, final IndexRequest indexRequest);
 }

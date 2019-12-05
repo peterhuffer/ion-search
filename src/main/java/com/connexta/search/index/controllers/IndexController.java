@@ -10,11 +10,11 @@ import com.connexta.search.common.exceptions.DetailedResponseStatusException;
 import com.connexta.search.index.IndexService;
 import com.connexta.search.rest.models.IndexRequest;
 import com.connexta.search.rest.spring.IndexApi;
+import java.util.UUID;
 import javax.validation.Valid;
+import javax.validation.ValidationException;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
-import javax.validation.constraints.Pattern;
-import javax.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -35,9 +35,7 @@ public class IndexController implements IndexApi {
 
   @Override
   public ResponseEntity<Void> index(
-      final String acceptVersion,
-      @Pattern(regexp = "^[0-9a-zA-Z]+$") @Size(min = 32, max = 32) final String datasetId,
-      @Valid final IndexRequest indexRequest) {
+      final String acceptVersion, final UUID datasetId, @Valid final IndexRequest indexRequest) {
     final String expectedAcceptVersion = indexApiVersion;
     if (!StringUtils.equals(acceptVersion, expectedAcceptVersion)) {
       throw new DetailedResponseStatusException(
@@ -47,7 +45,11 @@ public class IndexController implements IndexApi {
               ACCEPT_VERSION_HEADER_NAME, acceptVersion, expectedAcceptVersion));
     }
 
-    indexService.index(datasetId, indexRequest.getIrmLocation());
+    if (datasetId == null) {
+      throw new ValidationException("Invalid dataset id");
+    }
+
+    indexService.index(datasetId, indexRequest);
     return ResponseEntity.ok().build();
   }
 }

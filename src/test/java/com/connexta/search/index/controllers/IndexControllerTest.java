@@ -18,7 +18,7 @@ import com.connexta.search.common.exceptions.SearchException;
 import com.connexta.search.index.IndexService;
 import com.connexta.search.rest.models.IndexRequest;
 import com.connexta.search.rest.spring.IndexApi;
-import java.net.URI;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +38,13 @@ import org.springframework.web.server.ResponseStatusException;
 public class IndexControllerTest {
 
   private static final String INDEX_API_VERSION = "testIndexApiVersion";
+  private static final UUID DATASET_ID = UUID.randomUUID();
+  private static final IndexRequest INDEX_REQUEST =
+      new IndexRequest()
+          .irmLocation(String.format("http://store:9041/dataset/%s/irm", DATASET_ID.toString()))
+          .fileLocation(String.format("http://store:9041/dataset/%s/file", DATASET_ID.toString()))
+          .metacardLocation(
+              String.format("http://store:9041/dataset/%s/metacard", DATASET_ID.toString()));
 
   @Mock private IndexService mockIndexService;
 
@@ -57,35 +64,22 @@ public class IndexControllerTest {
   @NullAndEmptySource
   @ValueSource(strings = {"this is invalid"})
   void testInvalidAcceptVersion(final String acceptVersion) {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
     final ResponseStatusException thrown =
         assertThrows(
             ResponseStatusException.class,
-            () ->
-                indexApi.index(
-                    acceptVersion,
-                    datasetId,
-                    new IndexRequest()
-                        .irmLocation(
-                            new URI(
-                                String.format("http://store:9041/dataset/%s/irm", datasetId)))));
+            () -> indexApi.index(acceptVersion, DATASET_ID, INDEX_REQUEST));
     assertThat(thrown.getStatus(), is(HttpStatus.NOT_IMPLEMENTED));
     verifyNoInteractions(mockIndexService);
   }
 
   @ParameterizedTest
   @MethodSource("exceptionsThrownByIndexService")
-  void testIndexServiceThrowsThrowable(final Throwable throwable) throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-    final URI irmUri = new URI(String.format("http://store:9041/dataset/%s/irm", datasetId));
-    doThrow(throwable).when(mockIndexService).index(datasetId, irmUri);
+  void testIndexServiceThrowsThrowable(final Throwable throwable) {
+    doThrow(throwable).when(mockIndexService).index(DATASET_ID, INDEX_REQUEST);
 
     final Throwable thrown =
         assertThrows(
-            Throwable.class,
-            () ->
-                indexApi.index(
-                    INDEX_API_VERSION, datasetId, new IndexRequest().irmLocation(irmUri)));
+            Throwable.class, () -> indexApi.index(INDEX_API_VERSION, DATASET_ID, INDEX_REQUEST));
     assertThat(
         "thrown exception is the exact same exception thrown by the IndexService",
         thrown,
@@ -93,12 +87,10 @@ public class IndexControllerTest {
   }
 
   @Test
-  void testIndex() throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-    final URI irmUri = new URI(String.format("http://store:9041/dataset/%s/irm", datasetId));
-    indexApi.index(INDEX_API_VERSION, datasetId, new IndexRequest().irmLocation(irmUri));
+  void testIndex() {
+    indexApi.index(INDEX_API_VERSION, DATASET_ID, INDEX_REQUEST);
 
-    verify(mockIndexService).index(datasetId, irmUri);
+    verify(mockIndexService).index(DATASET_ID, INDEX_REQUEST);
   }
 
   private static Stream<Arguments> exceptionsThrownByIndexService() {

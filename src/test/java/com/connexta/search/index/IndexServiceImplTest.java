@@ -6,239 +6,174 @@
  */
 package com.connexta.search.index;
 
-import static com.connexta.search.common.SearchManagerImpl.EXT_EXTRACTED_TEXT;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 
-import com.connexta.search.common.SearchManager;
 import com.connexta.search.common.exceptions.SearchException;
+import com.connexta.search.index.exceptions.ContentException;
+import com.connexta.search.rest.models.IndexRequest;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.function.Function;
-import java.util.function.Predicate;
-import java.util.stream.Stream;
-import okhttp3.mockwebserver.MockResponse;
-import okhttp3.mockwebserver.MockWebServer;
-import org.apache.commons.io.IOUtils;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClient.RequestHeadersSpec;
-import org.springframework.web.reactive.function.client.WebClient.RequestHeadersUriSpec;
-import org.springframework.web.reactive.function.client.WebClient.ResponseSpec;
-import reactor.core.publisher.Mono;
 
 @ExtendWith(MockitoExtension.class)
 class IndexServiceImplTest {
 
-  @Mock private SearchManager mockSearchManager;
+  private static final String FILE_URL = "http://file";
+  private static final String IRM_URL = "http://irm";
+  private static final String METACARD_URL = "http://metacard";
+  private static final IndexRequest INDEX_REQUEST =
+      new IndexRequest().fileLocation(FILE_URL).irmLocation(IRM_URL).metacardLocation(METACARD_URL);
+
+  @Mock private ContentExtractor mockContentExtractor;
+  @Mock private IndexStorageAdaptor mockIndexStorageAdaptor;
+  @Mock private IonResourceLoader mockIonResourceLoader;
+
+  private IndexService indexService;
+
+  @BeforeEach
+  void beforeEach() {
+    indexService =
+        new IndexServiceImpl(mockIndexStorageAdaptor, mockIonResourceLoader, mockContentExtractor);
+  }
 
   @AfterEach
-  public void afterEach() {
-    verifyNoMoreInteractions(mockSearchManager);
-  }
-
-  @ParameterizedTest
-  @ValueSource(ints = {400, 401, 403, 500, 501})
-  void testIrmUriReturnsNotOkStatusCode(final int code) throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-
-    final SearchException thrown;
-    try (final MockWebServer storeMockWebServer = new MockWebServer()) {
-      storeMockWebServer.start();
-      storeMockWebServer.enqueue(new MockResponse().setResponseCode(code));
-
-      thrown =
-          assertThrows(
-              SearchException.class,
-              () ->
-                  ((IndexService) new IndexServiceImpl(mockSearchManager, WebClient.create()))
-                      .index(
-                          datasetId,
-                          storeMockWebServer
-                              .url(String.format("/dataset/%s/irm", datasetId))
-                              .uri()));
-    }
-    assertThat(thrown.getStatus(), is(HttpStatus.BAD_REQUEST));
+  void afterEach() {
+    verifyNoMoreInteractions(mockContentExtractor, mockIndexStorageAdaptor, mockIonResourceLoader);
   }
 
   @Test
-  void testWebClientException(
-      @Mock final WebClient mockWebClient,
-      @Mock final RequestHeadersUriSpec mockRequestHeadersUriSpec,
-      @Mock final RequestHeadersSpec mockRequestHeadersSpec,
-      @Mock final ResponseSpec mockResponseSpec,
-      @Mock final ResponseSpec mockResponseSpec2,
-      @Mock final Mono<Resource> mockMono)
-      throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-    final URI irmUri = new URI(String.format("http://store:9041/dataset/%s/irm", datasetId));
+  void testIndex(@Mock final InputStream mockInputStream) throws Exception {
+    final UUID datasetId = UUID.randomUUID();
 
-    when(mockWebClient.get()).thenReturn(mockRequestHeadersUriSpec);
-    when(mockRequestHeadersUriSpec.uri(irmUri)).thenReturn(mockRequestHeadersSpec);
-    when(mockRequestHeadersSpec.retrieve()).thenReturn(mockResponseSpec);
-    when(mockResponseSpec.onStatus(any(Predicate.class), any(Function.class)))
-        .thenReturn(mockResponseSpec2);
-    when(mockResponseSpec2.bodyToMono(Resource.class)).thenReturn(mockMono);
+    when(mockIndexStorageAdaptor.existsById(datasetId.toString())).thenReturn(false);
+    doReturn(mockInputStream).when(mockIonResourceLoader).get(FILE_URL);
+    doReturn("FileContents").when(mockContentExtractor).extractText(mockInputStream);
+    indexService.index(datasetId, INDEX_REQUEST);
+    ArgumentCaptor<Index> indexCaptor = ArgumentCaptor.forClass(Index.class);
+    verify(mockIndexStorageAdaptor).save(indexCaptor.capture());
+    Index index = indexCaptor.getValue();
+    assertThat(index.getId(), is(datasetId.toString()));
+    assertThat(index.getFileUrl(), is(FILE_URL));
+    assertThat(index.getIrmUrl(), is(IRM_URL));
+    assertThat(index.getContents(), is("FileContents"));
+    assertThat(index.getCountryCode(), nullValue());
+    assertThat(index.getCreated(), nullValue());
+    assertThat(index.getMetacardUrl(), is(METACARD_URL));
+    assertThat(index.getModified(), nullValue());
 
+    verify(mockInputStream).close();
+    verifyNoMoreInteractions(mockInputStream);
+  }
+
+  @Test
+  void testDatasetAlreadyExists() {
+    // given
+    final UUID datasetId = UUID.randomUUID();
+    // stub dataset already exists
+    when(mockIndexStorageAdaptor.existsById(datasetId.toString())).thenReturn(true);
+
+    // expect
+    final SearchException thrown =
+        assertThrows(SearchException.class, () -> indexService.index(datasetId, INDEX_REQUEST));
+    assertThat(thrown.getStatus(), is(BAD_REQUEST));
+    verify(mockIndexStorageAdaptor, never()).save(any());
+  }
+
+  @Test
+  void testExceptionWhenCheckingIfDatasetExists() {
+    // stub dataset already exists
     final RuntimeException runtimeException = new RuntimeException();
-    when(mockMono.block()).thenThrow(runtimeException);
+    final UUID datasetId = UUID.randomUUID();
+    doThrow(runtimeException).when(mockIndexStorageAdaptor).existsById(datasetId.toString());
 
-    final SearchException thrown =
-        assertThrows(
-            SearchException.class,
-            () ->
-                ((IndexService) new IndexServiceImpl(mockSearchManager, mockWebClient))
-                    .index(datasetId, irmUri));
-    assertThat(thrown.getStatus(), is(HttpStatus.BAD_REQUEST));
-    assertThat(thrown.getCause(), is(runtimeException));
+    // expect
+    expectException(runtimeException, HttpStatus.INTERNAL_SERVER_ERROR, datasetId);
+    verify(mockIndexStorageAdaptor, never()).save(any());
   }
 
   @Test
-  void testNullResource(
-      @Mock final WebClient mockWebClient,
-      @Mock final RequestHeadersUriSpec mockRequestHeadersUriSpec,
-      @Mock final RequestHeadersSpec mockRequestHeadersSpec,
-      @Mock final ResponseSpec mockResponseSpec,
-      @Mock final ResponseSpec mockResponseSpec2,
-      @Mock final Mono<Resource> mockMono)
+  void testBadInputStreamWhenProcessingFile() throws Exception {
+    when(mockIndexStorageAdaptor.existsById(anyString())).thenReturn(false);
+    IOException ioException = new IOException();
+    doThrow(ioException).when(mockIonResourceLoader).get(anyString());
+    expectException(ioException, INTERNAL_SERVER_ERROR, UUID.randomUUID());
+    verify(mockIndexStorageAdaptor, never()).save(any());
+  }
+
+  @Test
+  void testExceptionWhileExtractingText(@Mock final InputStream mockInputStream) throws Exception {
+    final UUID datasetId = UUID.randomUUID();
+    when(mockIndexStorageAdaptor.existsById(datasetId.toString())).thenReturn(false);
+    final ContentException exception = new ContentException("");
+    doReturn(mockInputStream).when(mockIonResourceLoader).get(FILE_URL);
+    doThrow(exception).when(mockContentExtractor).extractText(mockInputStream);
+    expectException(exception, HttpStatus.INTERNAL_SERVER_ERROR, datasetId);
+    verify(mockIndexStorageAdaptor, never()).save(any());
+    verify(mockInputStream).close();
+    verifyNoMoreInteractions(mockInputStream);
+  }
+
+  @Test
+  void testExceptionsWhenClosingInputStream(@Mock final InputStream mockInputStream)
       throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-    final URI irmUri = new URI(String.format("http://store:9041/dataset/%s/irm", datasetId));
-
-    when(mockWebClient.get()).thenReturn(mockRequestHeadersUriSpec);
-    when(mockRequestHeadersUriSpec.uri(irmUri)).thenReturn(mockRequestHeadersSpec);
-    when(mockRequestHeadersSpec.retrieve()).thenReturn(mockResponseSpec);
-    when(mockResponseSpec.onStatus(any(Predicate.class), any(Function.class)))
-        .thenReturn(mockResponseSpec2);
-    when(mockResponseSpec2.bodyToMono(Resource.class)).thenReturn(mockMono);
-    when(mockMono.block()).thenReturn(null);
-
-    final SearchException thrown =
-        assertThrows(
-            SearchException.class,
-            () ->
-                ((IndexService) new IndexServiceImpl(mockSearchManager, mockWebClient))
-                    .index(datasetId, irmUri));
-    assertThat(thrown.getStatus(), is(HttpStatus.BAD_REQUEST));
+    final UUID datasetId = UUID.randomUUID();
+    when(mockIndexStorageAdaptor.existsById(datasetId.toString())).thenReturn(false);
+    final IOException ioException = new IOException("");
+    doReturn(mockInputStream).when(mockIonResourceLoader).get(FILE_URL);
+    doReturn("FileContents").when(mockContentExtractor).extractText(mockInputStream);
+    doThrow(ioException).when(mockInputStream).close();
+    expectException(ioException, HttpStatus.INTERNAL_SERVER_ERROR, datasetId);
+    verify(mockIndexStorageAdaptor, never()).save(any());
+    verify(mockInputStream).close();
+    verifyNoMoreInteractions(mockInputStream);
   }
 
   @Test
-  void testCouldNotOpenInputStream(
-      @Mock final WebClient mockWebClient,
-      @Mock final RequestHeadersUriSpec mockRequestHeadersUriSpec,
-      @Mock final RequestHeadersSpec mockRequestHeadersSpec,
-      @Mock final ResponseSpec mockResponseSpec,
-      @Mock final ResponseSpec mockResponseSpec2,
-      @Mock final Mono<Resource> mockMono,
-      @Mock final Resource mockResource)
-      throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-    final URI irmUri = new URI(String.format("http://store:9041/dataset/%s/irm", datasetId));
+  void testExceptionWhenSaving(@Mock final InputStream mockInputStream) throws Exception {
+    // given
+    final UUID datasetId = UUID.randomUUID();
+    when(mockIndexStorageAdaptor.existsById(datasetId.toString())).thenReturn(false);
+    doReturn(mockInputStream).when(mockIonResourceLoader).get(FILE_URL);
+    doReturn("FileContents").when(mockContentExtractor).extractText(mockInputStream);
 
-    when(mockWebClient.get()).thenReturn(mockRequestHeadersUriSpec);
-    when(mockRequestHeadersUriSpec.uri(irmUri)).thenReturn(mockRequestHeadersSpec);
-    when(mockRequestHeadersSpec.retrieve()).thenReturn(mockResponseSpec);
-    when(mockResponseSpec.onStatus(any(Predicate.class), any(Function.class)))
-        .thenReturn(mockResponseSpec2);
-    when(mockResponseSpec2.bodyToMono(Resource.class)).thenReturn(mockMono);
-    when(mockMono.block()).thenReturn(mockResource);
+    // and stub CrudRepository#existsById
+    when(mockIndexStorageAdaptor.existsById(datasetId.toString())).thenReturn(false);
 
-    final IOException ioException = new IOException();
-    when(mockResource.getInputStream()).thenThrow(ioException);
+    // and stub CrudRepository#save
+    final RuntimeException runtimeException = new RuntimeException();
+    doThrow(runtimeException).when(mockIndexStorageAdaptor).save(any());
 
-    final SearchException thrown =
-        assertThrows(
-            SearchException.class,
-            () ->
-                ((IndexService) new IndexServiceImpl(mockSearchManager, mockWebClient))
-                    .index(datasetId, irmUri));
-    assertThat(thrown.getStatus(), is(HttpStatus.BAD_REQUEST));
-    assertThat(thrown.getCause(), is(ioException));
+    // expect
+    expectException(runtimeException, HttpStatus.INTERNAL_SERVER_ERROR, datasetId);
+    verify(mockInputStream).close();
+    verifyNoMoreInteractions(mockInputStream);
   }
 
-  @ParameterizedTest
-  @MethodSource("exceptionsThrownSearchManager")
-  void testSearchManagerExceptions(final RuntimeException runtimeException) throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-
-    final RuntimeException thrown;
-
-    try (final MockWebServer storeMockWebServer = new MockWebServer()) {
-      storeMockWebServer.start();
-      storeMockWebServer.enqueue(
-          new MockResponse()
-              .setBody(
-                  String.format(
-                      "{ \"%s\" : \"All the color had been leached from Winterfell until only grey and white remained.\" }",
-                      EXT_EXTRACTED_TEXT))
-              .setResponseCode(200));
-      final URI irmUri = storeMockWebServer.url(String.format("/dataset/%s/irm", datasetId)).uri();
-      doThrow(runtimeException)
-          .when(mockSearchManager)
-          .index(eq(datasetId), eq(irmUri), any(InputStream.class));
-
-      thrown =
-          assertThrows(
-              RuntimeException.class,
-              () ->
-                  ((IndexService) new IndexServiceImpl(mockSearchManager, WebClient.create()))
-                      .index(datasetId, irmUri));
-    }
-
-    assertThat(
-        "thrown exception is the exact same exception thrown by the SearchManager",
-        thrown,
-        is(runtimeException));
-  }
-
-  @Test
-  void testIndex() throws Exception {
-    final String datasetId = "00067360b70e4acfab561fe593ad3f7a";
-    final String body =
-        String.format(
-            "{ \"%s\" : \"All the color had been leached from Winterfell until only grey and white remained.\" }",
-            EXT_EXTRACTED_TEXT);
-
-    final URI irmUri;
-    try (final MockWebServer storeMockWebServer = new MockWebServer()) {
-      storeMockWebServer.start();
-      storeMockWebServer.enqueue(new MockResponse().setBody(body).setResponseCode(200));
-      irmUri = storeMockWebServer.url(String.format("/dataset/%s/irm", datasetId)).uri();
-
-      ((IndexService) new IndexServiceImpl(mockSearchManager, WebClient.create()))
-          .index(datasetId, irmUri);
-    }
-
-    final ArgumentCaptor<InputStream> inputStreamCaptor =
-        ArgumentCaptor.forClass(InputStream.class);
-    verify(mockSearchManager).index(eq(datasetId), eq(irmUri), inputStreamCaptor.capture());
-    assertThat(IOUtils.toString(inputStreamCaptor.getValue(), StandardCharsets.UTF_8), is(body));
-  }
-
-  private static Stream<Arguments> exceptionsThrownSearchManager() {
-    return Stream.of(
-        Arguments.of(
-            new SearchException(HttpStatus.INTERNAL_SERVER_ERROR, "test", new Throwable("test"))),
-        Arguments.of(new RuntimeException()));
+  void expectException(Throwable throwable, HttpStatus httpStatus, UUID datasetId) {
+    SearchException thrown =
+        assertThrows(SearchException.class, () -> indexService.index(datasetId, INDEX_REQUEST));
+    assertThat(thrown.getStatus(), is(httpStatus));
+    assertThat(thrown.getCause(), is(throwable));
   }
 }
