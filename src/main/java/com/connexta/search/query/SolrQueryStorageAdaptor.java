@@ -10,12 +10,14 @@ import static com.connexta.search.query.configs.QueryStorageAdaptorConfiguration
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 
+import com.connexta.search.IndexResult;
 import com.connexta.search.common.configs.SolrConfiguration;
 import com.connexta.search.common.exceptions.SearchException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.validation.constraints.NotNull;
@@ -43,7 +45,7 @@ public class SolrQueryStorageAdaptor implements QueryStorageAdaptor {
   @NotNull private final SolrClient solrClient;
 
   @Override
-  public Set<URI> query(String commonQL) {
+  public Set<IndexResult> query(String commonQL) {
     Filter filter;
     try {
       filter = ECQL.toFilter(commonQL);
@@ -84,24 +86,37 @@ public class SolrQueryStorageAdaptor implements QueryStorageAdaptor {
       throw new SearchException(INTERNAL_SERVER_ERROR, "Error querying");
     }
 
-    final Set<URI> irmURIs = new HashSet<>();
+    final Set<IndexResult> indexResults = new HashSet<>();
     for (SolrDocument doc : response.getResults()) {
-      Object obj = doc.get(SolrConfiguration.IRM_URL_ATTRIBUTE);
-      if (obj instanceof String) {
-        final String irmUri = (String) obj;
-        try {
-          irmURIs.add(new URI(irmUri));
-        } catch (URISyntaxException e) {
-          // TODO write tests for this case
-          throw new SearchException(
-              INTERNAL_SERVER_ERROR, "Unable to construct URI from irmUri=" + irmUri, e);
-        }
-      } else {
-        // shouldn't hit this since the schema enforces the ID is a string
-        log.debug("Skipping invalid solr result {}", doc);
+      final Optional<URI> irmUri = getFieldAsURI(doc, SolrConfiguration.IRM_URL_ATTRIBUTE);
+      final Optional<URI> metacardUri =
+          getFieldAsURI(doc, SolrConfiguration.METACARD_URL_ATTRIBUTE);
+      if (irmUri.isPresent() && metacardUri.isPresent()) {
+        indexResults.add(
+            IndexResult.builder()
+                .irmLocation(irmUri.get())
+                .metacardLocation(metacardUri.get())
+                .build());
       }
     }
 
-    return irmURIs;
+    return indexResults;
+  }
+
+  private Optional<URI> getFieldAsURI(SolrDocument solrDocument, String fieldName) {
+    Object obj = solrDocument.get(fieldName);
+    if (obj instanceof String) {
+      final String value = (String) obj;
+      try {
+        return Optional.of(new URI(value));
+      } catch (URISyntaxException e) {
+        log.debug(
+            "Unable to construct URI from field \"{}\" with value \"{}\"", fieldName, value, e);
+        throw new SearchException(INTERNAL_SERVER_ERROR, "Query returned invalid document", e);
+      }
+    } else {
+      log.debug("Skipping invalid solr result {}", solrDocument);
+      return Optional.empty();
+    }
   }
 }

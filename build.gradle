@@ -42,20 +42,27 @@ dependencies {
     annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
     compileOnly "org.projectlombok:lombok:${lombokVersion}"
     implementation "com.connexta.search:index-api-rest-spring-stubs:${indexApiVersion}"
-    implementation "com.connexta.search:query-api-rest-spring-stubs:0.3.0"
+    implementation "com.connexta.search:query-api-rest-spring-server-stubs:0.4.0-SNAPSHOT"
     implementation "io.springfox:springfox-swagger2:${springfoxSwaggerVersion}"
     implementation "io.springfox:springfox-swagger-ui:${springfoxSwaggerVersion}"
     implementation "javax.inject:javax.inject:1"
-    implementation("org.apache.tika:tika-parsers:1.22") {
+    implementation ("org.apache.tika:tika-parsers:1.22") {
         exclude group: "c3p0", module: "c3p0"
         because "CVE-2019-5427"
 
-        exclude group: "org.apache.cxf"
+        exclude group: "org.apache.cxf", module: "cxf-core"
+        because "CVE-2019-12406, CVE-2019-12419"
+
+        exclude group: "org.apache.cxf", module: "cxf-rt-security"
+        because "CVE-2019-12406, CVE-2019-12419"
+
+        exclude group: "org.apache.cxf", module: "cxf-rt-rs-client"
         because "CVE-2019-12406, CVE-2019-12419"
 
         exclude group: "org.apache.commons", module: "commons-compress"
         because "CVE-2019-12402"
     }
+    implementation "org.apache.commons:commons-compress:1.19"
     implementation("org.geotools:gt-solr:22.1") {
         exclude group: "commons-beanutils", module: "commons-beanutils"
         because "This artifact pulled in by Geotools has a classifier \"noclassprop\". It is a " +
@@ -114,7 +121,7 @@ jacocoTestCoverageVerification {
     violationRules {
         rule {
             limit {
-                minimum = 0.84
+                minimum = 0.83
             }
         }
     }

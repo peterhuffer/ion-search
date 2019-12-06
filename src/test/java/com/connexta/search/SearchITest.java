@@ -15,10 +15,13 @@ import com.connexta.search.index.IndexComponentTest;
 import com.connexta.search.index.controllers.IndexController;
 import com.connexta.search.query.controllers.QueryController;
 import com.connexta.search.rest.models.IndexRequest;
+import com.connexta.search.rest.models.Result;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -26,12 +29,15 @@ import javax.inject.Inject;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import org.apache.commons.io.IOUtils;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.hamcrest.Description;
 import org.hamcrest.TypeSafeMatcher;
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -112,9 +118,6 @@ class SearchITest {
   }
 
   @Test
-  void testContextLoads() {}
-
-  @Test
   void testIndexAndQuery() throws Exception {
     // given index an initial IRM
     storeMockWebServer.enqueue(
@@ -127,6 +130,7 @@ class SearchITest {
         .bodyValue(
             (new IndexRequest()
                 .irmLocation("firstIrmLocation")
+                .metacardLocation("firstMetacardLocation")
                 .fileLocation(
                     storeMockWebServer
                         .url(String.format("/dataset/%s/file", firstDatasetIdString))
@@ -147,6 +151,7 @@ class SearchITest {
         new MockResponse().setBody("second file contents " + keyword).setResponseCode(200));
     final String datasetIdString = UUID.randomUUID().toString();
     final String irmLocation = "irmLocation";
+    final String metacardLocation = "metacardLocation";
     final ResponseSpec response =
         webTestClient
             .put()
@@ -155,6 +160,7 @@ class SearchITest {
             .bodyValue(
                 (new IndexRequest()
                     .irmLocation(irmLocation)
+                    .metacardLocation(metacardLocation)
                     .fileLocation(
                         storeMockWebServer
                             .url(String.format("/dataset/%s/file", datasetIdString))
@@ -171,7 +177,8 @@ class SearchITest {
     assertThat(getFileRequest.getMethod(), is(HttpMethod.GET.name()));
     assertThat(getFileRequest.getPath(), is(String.format("/dataset/%s/file", datasetIdString)));
 
-    // and verify query returns irmUri
+    Result expectedResult =
+        new Result().irmLocation(new URI(irmLocation)).metacardLocation(new URI(metacardLocation));
     webTestClient
         .get()
         .uri(
@@ -180,12 +187,25 @@ class SearchITest {
                     .setPath(QueryController.URL_TEMPLATE)
                     .setParameter("q", String.format("%s LIKE '%s'", CONTENTS_ATTRIBUTE, keyword))
                     .build()
-                    .toString()))
+                    .toString(),
+                StandardCharsets.UTF_8))
         .exchange()
         .expectStatus()
         .isOk()
-        .expectBody(List.class)
-        .value(hasItem(irmLocation));
+        .expectBody()
+        .consumeWith(
+            r -> {
+              try {
+                String responseString =
+                    IOUtils.toString(r.getResponseBody(), StandardCharsets.UTF_8.toString());
+                JSONArray resultArray = new JSONArray(responseString);
+                assertThat(
+                    resultArray.getJSONObject(0).get("metacardLocation"), is(metacardLocation));
+                assertThat(resultArray.getJSONObject(0).get("irmLocation"), is(irmLocation));
+              } catch (JSONException | IOException e) {
+                throw new RuntimeException("Failed do to parse query response", e);
+              }
+            });
   }
 
   /** TODO Move this to {@link IndexComponentTest}. Not sure why this fails in that class. */

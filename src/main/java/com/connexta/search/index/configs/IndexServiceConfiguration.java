@@ -12,7 +12,6 @@ import com.connexta.search.index.IndexServiceImpl;
 import com.connexta.search.index.IndexStorageAdaptor;
 import com.connexta.search.index.IonResourceLoader;
 import javax.validation.constraints.NotNull;
-import org.apache.tika.Tika;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ResourceLoader;
@@ -24,10 +23,7 @@ public class IndexServiceConfiguration {
   public IndexService indexService(
       @NotNull final IndexStorageAdaptor indexStorageAdaptor,
       @NotNull final ResourceLoader resourceLoader) {
-    // Set max document size to be 10MB characters. Assumes UTF-8 encodings are 1 byte
-    final Tika tika = new Tika();
-    tika.setMaxStringLength(10485760);
     return new IndexServiceImpl(
-        indexStorageAdaptor, new IonResourceLoader(resourceLoader), new ContentExtractorImpl(tika));
+        indexStorageAdaptor, new IonResourceLoader(resourceLoader), new ContentExtractorImpl());
   }
 }

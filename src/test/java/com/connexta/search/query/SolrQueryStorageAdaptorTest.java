@@ -7,6 +7,7 @@
 package com.connexta.search.query;
 
 import static com.connexta.search.common.configs.SolrConfiguration.IRM_URL_ATTRIBUTE;
+import static com.connexta.search.common.configs.SolrConfiguration.METACARD_URL_ATTRIBUTE;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -18,15 +19,16 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.connexta.search.IndexResult;
 import com.connexta.search.common.exceptions.SearchException;
 import com.connexta.search.query.configs.QueryStorageAdaptorConfiguration;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrServerException;
@@ -45,6 +47,30 @@ import org.springframework.http.HttpStatus;
 @ExtendWith(MockitoExtension.class)
 class SolrQueryStorageAdaptorTest {
 
+  private static final URI IRM_URI1;
+  private static final URI METACARD_URI1;
+  private static final URI IRM_URI2;
+  private static final URI METACARD_URI2;
+
+  private static final IndexResult INDEX_RESULT1;
+  private static final IndexResult INDEX_RESULT2;
+
+  static {
+    try {
+      IRM_URI1 = new URI("http://localhost:1234/irm1");
+      METACARD_URI1 = new URI("http://localhost:1234/metacard1");
+      IRM_URI2 = new URI("http://localhost:1234/irm2");
+      METACARD_URI2 = new URI("http://localhost:1234/metacard2");
+
+      INDEX_RESULT1 =
+          IndexResult.builder().irmLocation(IRM_URI1).metacardLocation(METACARD_URI1).build();
+      INDEX_RESULT2 =
+          IndexResult.builder().irmLocation(IRM_URI2).metacardLocation(METACARD_URI2).build();
+    } catch (URISyntaxException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   @Mock private SolrClient mockSolrClient;
 
   private QueryStorageAdaptor queryStorageAdaptor;
@@ -53,8 +79,6 @@ class SolrQueryStorageAdaptorTest {
   void beforeEach() {
     queryStorageAdaptor = new SolrQueryStorageAdaptor(mockSolrClient);
   }
-
-  // query tests
 
   @Test
   void testQueryInvalidEcql() {
@@ -90,12 +114,12 @@ class SolrQueryStorageAdaptorTest {
         queryPairs.entrySet().stream()
             .map(e -> String.format(template, e.getKey(), e.getValue()))
             .collect(Collectors.joining(" AND "));
-    QueryResponse queryResponse = mockQueryResponse("something");
+    QueryResponse queryResponse =
+        mockQueryResponse(List.of(new SolrEntry(IRM_URI1.toString(), METACARD_URI1.toString())));
     when(mockSolrClient.query(anyString(), any())).thenReturn(queryResponse);
 
     // expect
-    Set<URI> result = queryStorageAdaptor.query(queryString);
-    assertThat(result, containsInAnyOrder(new URI("something")));
+    assertThat(queryStorageAdaptor.query(queryString), containsInAnyOrder(INDEX_RESULT1));
   }
 
   @Test
@@ -133,7 +157,22 @@ class SolrQueryStorageAdaptorTest {
     final String idQuery = "id = 'value1' AND id = 'value2'";
 
     QueryResponse queryResponse =
-        mockQueryResponse(new URI("valid").toString(), "<this uri is invalid>");
+        mockQueryResponse(List.of(new SolrEntry(IRM_URI1.toString(), "<invalid metacard uri>")));
+    when(mockSolrClient.query(anyString(), any())).thenReturn(queryResponse);
+
+    // expect
+    final SearchException thrown =
+        assertThrows(SearchException.class, () -> queryStorageAdaptor.query(idQuery));
+    assertThat(thrown.getStatus(), is(HttpStatus.INTERNAL_SERVER_ERROR));
+  }
+
+  @Test
+  void testInvalidMetacardUriString() throws Exception {
+    // setup
+    final String idQuery = "id = 'value1' AND id = 'value2'";
+
+    QueryResponse queryResponse =
+        mockQueryResponse(List.of(new SolrEntry("<invalid irm uri>", "")));
     when(mockSolrClient.query(anyString(), any())).thenReturn(queryResponse);
 
     // expect
@@ -147,7 +186,7 @@ class SolrQueryStorageAdaptorTest {
     // setup
     final String idQuery = "id = 'value'";
 
-    QueryResponse queryResponse = mockQueryResponse();
+    QueryResponse queryResponse = mockQueryResponse(List.of());
     when(mockSolrClient.query(anyString(), any())).thenReturn(queryResponse);
 
     // expect
@@ -159,20 +198,26 @@ class SolrQueryStorageAdaptorTest {
     // setup
     final String idQuery = "id = 'value1' AND id = 'value2'";
 
-    final URI irmUri1 = new URI("value1");
-    final URI irmUri2 = new URI("value2");
-    QueryResponse queryResponse = mockQueryResponse(irmUri1.toString(), irmUri2.toString());
+    QueryResponse queryResponse =
+        mockQueryResponse(
+            List.of(
+                new SolrEntry(IRM_URI1.toString(), METACARD_URI1.toString()),
+                new SolrEntry(IRM_URI2.toString(), METACARD_URI2.toString())));
     when(mockSolrClient.query(anyString(), any())).thenReturn(queryResponse);
 
     // expect
-    assertThat(queryStorageAdaptor.query(idQuery), containsInAnyOrder(irmUri1, irmUri2));
+    assertThat(
+        queryStorageAdaptor.query(idQuery), containsInAnyOrder(INDEX_RESULT1, INDEX_RESULT2));
   }
 
-  private static QueryResponse mockQueryResponse(final String... irmUriStrings) {
+  private static QueryResponse mockQueryResponse(List<SolrEntry> solrEntries) {
     List<SolrDocument> solrDocuments = new ArrayList<>();
-    for (final String irmUri : irmUriStrings) {
+    for (SolrEntry solrEntry : solrEntries) {
       SolrDocument document = mock(SolrDocument.class);
-      when(document.get(IRM_URL_ATTRIBUTE)).thenReturn(irmUri);
+      when(document.get(IRM_URL_ATTRIBUTE)).thenReturn(solrEntry.irmUri);
+      if (!solrEntry.metacardUri.isEmpty()) {
+        when(document.get(METACARD_URL_ATTRIBUTE)).thenReturn(solrEntry.metacardUri);
+      }
       solrDocuments.add(document);
     }
 
@@ -182,5 +227,15 @@ class SolrQueryStorageAdaptorTest {
     QueryResponse queryResponse = mock(QueryResponse.class);
     when(queryResponse.getResults()).thenReturn(solrDocumentList);
     return queryResponse;
+  }
+
+  private class SolrEntry {
+    final String irmUri;
+    final String metacardUri;
+
+    SolrEntry(String irmUri, String metacardUri) {
+      this.irmUri = irmUri;
+      this.metacardUri = metacardUri;
+    }
   }
 }

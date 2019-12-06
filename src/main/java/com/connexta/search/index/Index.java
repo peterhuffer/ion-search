@@ -30,10 +30,10 @@ import org.springframework.data.solr.core.mapping.SolrDocument;
 
 /**
  * Represents a document that can be saved or retrieved from a (Solr) data {@link
- * org.springframework.data.repository.Repository}. Although this class uses Spring Data, the Solr
- * schema for the Solr core are defined in a file. Configuring properties like required, searchable,
- * and stored should not be done with Spring Data annotations. Instead, the Solr schema file should
- * be modified.
+ * org.springframework.data.repository.Repository}. Although this class uses Spring IndexResult, the
+ * Solr schema for the Solr core are defined in a file. Configuring properties like required,
+ * searchable, and stored should not be done with Spring IndexResult annotations. Instead, the Solr
+ * schema file should be modified.
  *
  * <p>TODO Tests to make sure that id, fileUrl, metacardUrl, irmLocation are required
  */

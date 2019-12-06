@@ -6,8 +6,8 @@
  */
 package com.connexta.search.query;
 
+import com.connexta.search.IndexResult;
 import com.connexta.search.common.exceptions.SearchException;
-import java.net.URI;
 import java.util.Set;
 
 public interface QueryStorageAdaptor {
@@ -15,8 +15,8 @@ public interface QueryStorageAdaptor {
   /**
    * Query with the given {@code commonQL}.
    *
-   * @return a {@link Set} of IRM {@link URI}s
+   * @return the set of {@link IndexResult}s matching the query
    * @throws SearchException if there was an error querying or the {@code commonQL} was invalid
    */
-  Set<URI> query(String commonQL);
+  Set<IndexResult> query(String commonQL);
 }

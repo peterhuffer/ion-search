@@ -6,7 +6,7 @@
  */
 package com.connexta.search.query;
 
-import java.net.URI;
+import com.connexta.search.IndexResult;
 import java.util.Set;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Pattern;
@@ -19,6 +19,6 @@ public interface QueryService {
    *     the {@code commonQL} was invalid
    */
   @NotNull
-  Set<URI> find(
+  Set<IndexResult> find(
       @NotNull @Pattern(regexp = ".*\\S.*") @Size(min = 1, max = 5000) final String commonQL);
 }

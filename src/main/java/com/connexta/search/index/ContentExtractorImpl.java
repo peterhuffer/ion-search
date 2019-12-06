@@ -11,23 +11,26 @@ import static org.apache.commons.lang3.Validate.notNull;
 import com.connexta.search.index.exceptions.ContentException;
 import java.io.IOException;
 import java.io.InputStream;
-import lombok.NonNull;
 import org.apache.tika.Tika;
 import org.apache.tika.exception.TikaException;
 
 public class ContentExtractorImpl implements ContentExtractor {
 
+  private static final int DEFAULT_MAX_CONTENT_LENGTH = 10485760;
+
   private final Tika tika;
 
-  /** @throws NullPointerException if {@code tika} is {@code null} */
-  public ContentExtractorImpl(@NonNull Tika tika) {
-    this.tika = tika;
+  public ContentExtractorImpl() {
+    this(DEFAULT_MAX_CONTENT_LENGTH);
   }
 
-  /** @throws NullPointerException if {@code inputStream} is {@code null} */
+  public ContentExtractorImpl(int maxContentLength) {
+    this.tika = new Tika();
+    this.tika.setMaxStringLength(maxContentLength);
+  }
+
   @Override
-  public String extractText(@NonNull InputStream inputStream) throws ContentException {
-    /* TODO: This will load the entire contents into memory. It will become a problem eventually. The easiest solution is to create a file and stream the contents to it. */
+  public String extractText(InputStream inputStream) throws ContentException {
     try {
       return tika.parseToString(notNull(inputStream));
     } catch (IOException | TikaException e) {
